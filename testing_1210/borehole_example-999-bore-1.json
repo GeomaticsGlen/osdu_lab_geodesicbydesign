@@ -1,0 +1,42 @@
+{
+  "id": "osdu:master-data--Wellbore:example-999-bore-1:1",
+  "kind": "wks:Wellbore:1.5.1",
+  "legal": {
+    "legaltags": ["opendes-public-usa"],
+    "otherRelevantDataCountries": ["US"]
+  },
+  "acl": {
+    "viewers": ["data.default.viewer@opendes"],
+    "owners": ["data.default.owner@opendes"]
+  },
+  "data": {
+    "name": "Wellbore example-999-bore-1",
+    "wellID": "osdu:master-data--Well:example-999:1",
+    "wellboreID": "example-999-bore-1",
+    "spudDate": "2021-03-01T00:00:00Z",
+    "rigReleaseDate": "2021-03-15T00:00:00Z",
+    "verticalMeasurement": 3500.0,
+    "verticalMeasurementUnit": "m",
+    "verticalMeasurementTypeID": "osdu:reference-data--MeasurementType:depth:1",
+    "verticalMeasurementID": "osdu:master-data--VerticalMeasurement:vm-999:1",
+    "facilityID": "osdu:master-data--Facility:facility-999:1",
+    "facilityVerticalMeasurementID": "osdu:master-data--FacilityVerticalMeasurement:fvm-999:1",
+    "locationUncertainty": {
+      "type": "Point",
+      "coordinates": [102.0, 0.5]
+    },
+    "legalParentList": [
+      "osdu:master-data--LegalEntity:parent-999:1"
+    ],
+    "metaItem": [
+      {
+        "key": "source",
+        "value": "synthetic test"
+      }
+    ],
+    "dataQuality": {
+      "qualityScore": 0.95,
+      "validationStatus": "validated"
+    }
+  }
+}

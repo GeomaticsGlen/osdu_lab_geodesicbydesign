@@ -1,0 +1,8 @@
+*.env
+*.log
+__pycache__/
+*.pyc
+*.DS_Store
+.venv/
+.idea/
+.vscode/arch_service/opensearch.env

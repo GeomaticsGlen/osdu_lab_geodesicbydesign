@@ -1,0 +1,9 @@
+{
+  "version": "1",
+  "name": "OSDU R3 Loader",
+  "type": "collection",
+  "ignore": [
+    "node_modules",
+    ".git"
+  ]
+}

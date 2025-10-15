@@ -1,0 +1,77 @@
+import json
+import os
+
+# Define the payload for Well.1.4.0 with dummy but schema-compliant values
+payload = {
+    "id": "osdu:master-data--Well:dummy-well-001:1",
+    "kind": "osdu:wks:master-data--Well:1.4.0",
+    "acl": {
+        "owners": ["owner@example.com"],
+        "viewers": ["viewer@example.com"]
+    },
+    "ancestry": {
+        "parents": []
+    },
+    "legal": {
+        "legaltags": ["opendes:US"],
+        "otherRelevantDataCountries": ["US"],
+        "status": "compliant"
+    },
+    "data": {
+        "Name": "Dummy Well 001",
+        "NameAliases": [
+            {
+                "AliasName": "DW-001",
+                "AliasNameTypeID": "osdu:reference-data--AliasNameType:regulatory:1",
+                "DefinitionOrganisationID": "osdu:master-data--Organisation:dummy-org:1",
+                "EffectiveDateTime": "2020-01-01T00:00:00Z",
+                "TerminationDateTime": "2030-01-01T00:00:00Z"
+            }
+        ],
+        "Operator": "osdu:master-data--Organisation:dummy-operator:1",
+        "SpudDate": "2021-06-01T00:00:00Z",
+        "WellPurposeID": "osdu:reference-data--WellPurpose:exploration:1",
+        "WellStatusID": "osdu:reference-data--WellStatus:active:1",
+        "WellTypeID": "osdu:reference-data--WellType:oil:1",
+        "WellboreIDs": [
+            "osdu:master-data--Wellbore:dummy-wellbore-001:1"
+        ],
+        "SurfaceLocation": {
+            "type": "Point",
+            "coordinates": [102.0, 0.5],
+            "crs": {
+                "type": "name",
+                "properties": {
+                    "name": "EPSG:4326"
+                }
+            }
+        },
+        "FieldID": "osdu:master-data--Field:dummy-field:1",
+        "CountryID": "osdu:master-data--Country:US:1",
+        "BasinID": "osdu:master-data--Basin:dummy-basin:1",
+        "PlayID": "osdu:master-data--Play:dummy-play:1",
+        "ProspectID": "osdu:master-data--Prospect:dummy-prospect:1",
+        "DiscoveryInd": True,
+        "TotalDepth": {
+            "value": 3500,
+            "uom": "m"
+        },
+        "DatumElevation": {
+            "value": 50,
+            "uom": "m"
+        }
+    }
+}
+
+def main():
+    # File path in the same directory as this script
+    file_path = os.path.join(os.path.dirname(__file__), "AUTO_Well_1_4_0.json")
+
+    # Write payload to JSON file
+    with open(file_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
+
+    print(f"[✔] Payload written to {file_path}")
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,16 @@
+meta {
+  name: Load UnitsOfMeasure
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}:{{storagePort}}/api/storage/v2/records
+
+  body: none
+  auth: inherit
+}
+
+settings {
+  encodeUrl: true
+}

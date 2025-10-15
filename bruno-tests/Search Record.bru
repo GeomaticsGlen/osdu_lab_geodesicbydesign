@@ -1,0 +1,16 @@
+meta {
+  name: Search Record
+  type: http
+  seq: 2
+}
+
+post {
+  url: http://localhost:5003/api/search/v2/query
+
+  body: none
+  auth: inherit
+}
+
+settings {
+  encodeUrl: true
+}

@@ -1,6 +1,6 @@
 **OSDU Reference Data Ingestion Pipeline**
 
-This is a starter project to provide the basic foundations for a basic OSDU platform implementation. 
+This is a starter project to provide the basic foundations for an OSDU platform implementation. 
 
 This project also serves as a personal deep dive into modern software engineering practices — from service-oriented architecture and RESTful API design to cloud-native deployment patterns and automated validation pipelines. It’s a hands-on vehicle for sharpening my fluency with contemporary web frameworks, modular backend design, and scalable ingestion workflows.
 

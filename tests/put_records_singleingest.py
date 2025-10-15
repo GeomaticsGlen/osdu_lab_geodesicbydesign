@@ -1,20 +1,56 @@
 # test_put.py
-import requests, json
+import requests
+import json
 
-BASE = "http://127.0.0.1:5000/api/storage/v2"
-HEADERS = {
-    "Authorization": "Bearer dev-placeholder",
-    "data-partition-id": "opendes",
+url = "http://localhost:5000/api/storage/v2/records"
+headers = {
+    "Authorization": "Bearer your-auth-token",
+    "data-partition-id": "osdu",
     "Content-Type": "application/json"
 }
 
-record = {
-    "id": "osdu:unit--Meter:1",
-    "kind": "osdu:wks:reference-data--UnitOfMeasure:1.0.0",
-    "acl": {"owners": ["data.default.owners@opendes"], "viewers": ["data.default.viewers@opendes"]},
-    "legal": {"legaltags": ["opendes-public-usa"], "otherRelevantDataCountries": ["US"], "status": "compliant"},
-    "data": {"Code": "m", "Name": "meter", "Description": "SI base unit of length"}
-}
+payload = [{
+    "id": "osdu:well--test-well-001",
+    "kind": "osdu:wks:master-data--Well:1.4.0",
+    "acl": {
+        "owners": ["data.default.owner@osdu"],
+        "viewers": ["data.default.viewer@osdu"]
+    },
+    "legal": {
+        "legaltags": ["osdu-default-legal"],
+        "otherRelevantDataCountries": ["US"],
+        "status": "compliant"
+    },
+    "data": {
+        "Name": "Test Well Alpha",
+        "WellID": "TW-001",
+        "Operator": "Test Energy Corp",
+        "SpudDate": "2020-01-15T00:00:00Z",
+        "SurfaceLocation": {
+            "Latitude": 29.76,
+            "Longitude": -95.36,
+            "CRS": "EPSG:4326"
+        },
+        "Elevation": {"Value": 120.5, "Unit": "m"},
+        "Datum": "MSL",
+        "Country": "USA",
+        "State": "Texas",
+        "County": "Harris",
+        "Field": "Test Field",
+        "Block": "Block A",
+        "Basin": "Gulf Coast",
+        "Play": "Play X",
+        "WellStatus": "Active",
+        "WellPurpose": "Production",
+        "WellFluid": "Oil",
+        "WellDirection": "Vertical",
+        "WellHeadElevation": {"Value": 125.0, "Unit": "m"},
+        "WellHeadElevationDatum": "MSL",
+        "CreatedBy": "stuart.g@osdu.org",
+        "CreationDate": "2025-10-15T11:00:00Z"
+    }
+}]
 
-resp = requests.put(f"{BASE}/records", headers=HEADERS, data=json.dumps([record]))
-print(resp.status_code, resp.json())
+response = requests.put(url, headers=headers, data=json.dumps(payload))
+print(f"Status Code: {response.status_code}")
+print(json.dumps(response.json(), indent=2))

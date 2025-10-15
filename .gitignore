@@ -6,3 +6,6 @@ __pycache__/
 .venv/
 .idea/
 .vscode/arch_service/opensearch.env
+# Exclude resolved schema outputs
+resolved_manifest_schemas/
+resolved_schemas/

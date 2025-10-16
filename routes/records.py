@@ -320,6 +320,12 @@ def get_flat_records_by_kind():
 def view_joined_wellbores():
     return render_template("joined_wellbores.html")
 
+@records_bp.route("/records/schema/browser", methods=["GET"])
+def view_schema_browser():
+    return render_template("schema_browser.html")
+
+
+
 
 
 

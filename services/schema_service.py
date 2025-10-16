@@ -4,6 +4,7 @@
 
 import json
 from jsonschema import validate, ValidationError
+from typing import List, Dict
 from flask import current_app
 from db import get_conn
 from backend.resolve_schema_refs import fetch_and_resolve as external_resolve
@@ -162,3 +163,202 @@ def validate_data_against_schema(kind: str, data: dict):
     except ValidationError as ve:
         current_app.logger.error(f"❌ Schema validation failed for kind {kind}: {ve.message}")
         raise ValueError(ve.message)
+
+# Extracts all field names and attributes from schema_registry.schema->'schema'->'properties'->'data'.
+# Handles both direct 'properties' and nested 'allOf' blocks, recursively flattening nested objects and arrays.
+# Used by /schema/fields/full to display full schema field definitions in the master schema browser UI.
+
+from typing import List, Dict
+
+def get_flattened_data_fields(kind: str) -> List[Dict[str, str]]:
+    try:
+        from db import get_conn
+        conn = get_conn()
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT schema->'schema' FROM schema_registry
+                WHERE kind = %s
+                LIMIT 1
+            """, (kind,))
+            row = cur.fetchone()
+            if not row:
+                return []
+
+            schema_def = row[0].get("schema", {})
+            flattened = []
+
+            def flatten_properties(properties: Dict, path: str = ""):
+                for field, attrs in properties.items():
+                    full_path = f"{path}{field}"
+                    flat = {"field": full_path}
+                    for key, val in attrs.items():
+                        flat[key] = str(val)
+                    flattened.append(flat)
+
+                    # Recurse into nested object properties
+                    if attrs.get("type") == "object" and "properties" in attrs:
+                        flatten_properties(attrs["properties"], path=f"{full_path}.")
+                    # Recurse into array items
+                    elif attrs.get("type") == "array" and "items" in attrs:
+                        items = attrs["items"]
+                        if isinstance(items, dict):
+                            if "properties" in items:
+                                flatten_properties(items["properties"], path=f"{full_path}[].")
+                            elif "allOf" in items:
+                                for block in items["allOf"]:
+                                    if "properties" in block:
+                                        flatten_properties(block["properties"], path=f"{full_path}[].")
+
+            # Handle data.allOf blocks
+            data_allof = schema_def.get("properties", {}).get("data", {}).get("allOf", [])
+            for block in data_allof:
+                if "properties" in block:
+                    flatten_properties(block["properties"])
+
+            # Handle direct data.properties (if present)
+            direct_props = schema_def.get("properties", {}).get("data", {}).get("properties", {})
+            if direct_props:
+                flatten_properties(direct_props)
+
+            return flattened
+
+    except Exception as e:
+        from flask import current_app
+        current_app.logger.error(f"Error in get_flattened_data_fields: {e}")
+        raise
+
+# Extracts all field names and types from the schema_registry for a given kind.
+# Used by the /schema/fields route to flatten schema definitions for frontend display.
+
+def get_registered_field_types(kind: str) -> List[Dict[str, str]]:
+    try:
+        from db import get_conn
+        conn = get_conn()
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT schema FROM schema_registry
+                WHERE kind = %s
+                LIMIT 1
+            """, (kind,))
+            row = cur.fetchone()
+            if not row:
+                return []
+
+            schema_def = row[0]  # JSONB dict
+            data_fields = schema_def.get("properties", {}).get("data", {}).get("properties", {})
+
+            return [
+                {"field": field, "type": field_def.get("type", "unknown")}
+                for field, field_def in sorted(data_fields.items())
+            ]
+
+    except Exception as e:
+        from flask import current_app
+        current_app.logger.error(f"Error in get_registered_field_types: {e}")
+        raise
+# Extracts all field names and attributes from schema_registry.schema->'schema'->'properties'->'data'.
+# Recursively flattens nested objects, arrays, $ref targets, and relationship references.
+# Uses in-memory cache to avoid redundant schema lookups during a single request.
+# Used by /schema/fields/full to display full schema field definitions in the master schema browser UI.
+
+#from typing import List, Dict
+
+def get_flattened_data_fields(kind: str) -> List[Dict[str, str]]:
+    try:
+        from db import get_conn
+        conn = get_conn()
+        resolved_cache = {}  # Cache for resolved schema fragments
+
+        def fetch_schema(kind: str) -> Dict:
+            if kind in resolved_cache:
+                return resolved_cache[kind]
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT schema->'schema' FROM schema_registry
+                    WHERE kind = %s
+                    LIMIT 1
+                """, (kind,))
+                row = cur.fetchone()
+                if not row:
+                    return {}
+                schema_def = row[0].get("schema", {})
+                resolved_cache[kind] = schema_def
+                return schema_def
+
+        flattened = []
+
+        def flatten_properties(properties: Dict, path: str = ""):
+            for field, attrs in properties.items():
+                full_path = f"{path}{field}"
+                flat = {"field": full_path}
+                for key, val in attrs.items():
+                    flat[key] = str(val)
+                flattened.append(flat)
+
+                # Recurse into nested object properties
+                if attrs.get("type") == "object" and "properties" in attrs:
+                    flatten_properties(attrs["properties"], path=f"{full_path}.")
+                # Recurse into array items
+                elif attrs.get("type") == "array" and "items" in attrs:
+                    items = attrs["items"]
+                    if isinstance(items, dict):
+                        if "properties" in items:
+                            flatten_properties(items["properties"], path=f"{full_path}[].")
+                        elif "allOf" in items:
+                            for block in items["allOf"]:
+                                if "properties" in block:
+                                    flatten_properties(block["properties"], path=f"{full_path}[].")
+
+                # 🔗 Relationship resolution
+                if "x-osdu-relationship" in attrs:
+                    try:
+                        rel = attrs["x-osdu-relationship"][0]
+                        ref_kind = f"osdu:wks:reference-data--{rel['EntityType']}:1.0.0"
+                        ref_schema = fetch_schema(ref_kind)
+                        ref_props = ref_schema.get("properties", {}).get("data", {}).get("properties", {})
+                        for subfield, subattrs in ref_props.items():
+                            sub = {"field": f"{full_path}.{subfield}"}
+                            for k, v in subattrs.items():
+                                sub[k] = str(v)
+                            flattened.append(sub)
+                    except Exception as e:
+                        from flask import current_app
+                        current_app.logger.warning(f"⚠️ Failed to resolve relationship for {full_path}: {e}")
+
+                # 📦 $ref resolution
+                if "$ref" in attrs:
+                    try:
+                        ref_id = attrs["$ref"]
+                        # Normalize to full kind if needed
+                        if ref_id.startswith("osdu:wks:"):
+                            ref_kind = ref_id
+                        else:
+                            continue  # Skip non-OSDU refs
+
+                        ref_schema = fetch_schema(ref_kind)
+                        ref_props = ref_schema.get("properties", {})
+                        flatten_properties(ref_props, path=f"{full_path}.")
+                    except Exception as e:
+                        from flask import current_app
+                        current_app.logger.warning(f"⚠️ Failed to resolve $ref for {full_path}: {e}")
+
+        # Load main schema
+        main_schema = fetch_schema(kind)
+
+        # Handle data.allOf blocks
+        data_allof = main_schema.get("properties", {}).get("data", {}).get("allOf", [])
+        for block in data_allof:
+            if "properties" in block:
+                flatten_properties(block["properties"])
+
+        # Handle direct data.properties (if present)
+        direct_props = main_schema.get("properties", {}).get("data", {}).get("properties", {})
+        if direct_props:
+            flatten_properties(direct_props)
+
+        return flattened
+
+    except Exception as e:
+        from flask import current_app
+        current_app.logger.error(f"Error in get_flattened_data_fields: {e}")
+        raise

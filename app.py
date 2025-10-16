@@ -37,8 +37,11 @@ def create_app():
     # Register blueprints
     app.register_blueprint(records_bp)
     app.register_blueprint(schema_bp)
+
+    # Log all registered routes
     for rule in app.url_map.iter_rules():
         print(f"[ROUTE] {rule.endpoint}: {rule.methods} -> {rule}")
+
     return app
 
 

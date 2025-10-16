@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Master Schema Browser</title>
+  <style>
+    body { font-family: sans-serif; padding: 1rem; }
+    label, select, button { margin: 0.5rem 0; display: block; }
+    table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
+    th, td { border: 1px solid #ccc; padding: 0.5rem; text-align: left; vertical-align: top; }
+    th { background-color: #f0f0f0; }
+    #error { color: red; margin-top: 1rem; }
+  </style>
+</head>
+<body>
+  <h1>Master Schema Browser</h1>
+
+  <label>
+    Master Schema Kind:
+    <select id="schemaDropdown"></select>
+  </label>
+
+  <button onclick="loadSchemaFields()">Browse Fields</button>
+  <div id="error"></div>
+  <table id="fieldsTable"></table>
+
+  <script>
+    async function populateSchemaDropdown() {
+      const dropdown = document.getElementById("schemaDropdown");
+      try {
+        const response = await fetch("/api/schema-service/v1/schema/kinds");
+        const kinds = await response.json();
+        dropdown.innerHTML = kinds.map(k => `<option value="${k}">${k}</option>`).join("");
+      } catch (err) {
+        console.error("Failed to load schema kinds:", err);
+      }
+    }
+
+    async function loadSchemaFields() {
+      const kind = document.getElementById("schemaDropdown").value;
+      const errorDiv = document.getElementById("error");
+      const table = document.getElementById("fieldsTable");
+      errorDiv.textContent = "";
+      table.innerHTML = "";
+
+      if (!kind) {
+        errorDiv.textContent = "Please select a schema kind.";
+        return;
+      }
+
+      try {
+        const response = await fetch(`/api/schema-service/v1/schema/fields/full?kind=${encodeURIComponent(kind)}`);
+        if (!response.ok) {
+          const err = await response.json();
+          throw new Error(err.error || "API error");
+        }
+
+        const fields = await response.json();
+        console.log("Returned fields:", fields);
+
+        if (fields.length === 0) {
+          errorDiv.textContent = "No fields found for this kind.";
+          return;
+        }
+
+        const headers = Object.keys(fields[0]);
+        const thead = "<tr>" + headers.map(h => `<th>${h}</th>`).join("") + "</tr>";
+        const rows = fields.map(f =>
+          `<tr>${headers.map(h => `<td>${f[h] || ""}</td>`).join("")}</tr>`
+        ).join("");
+
+        table.innerHTML = thead + rows;
+
+      } catch (err) {
+        errorDiv.textContent = "Error: " + err.message;
+      }
+    }
+
+    window.onload = populateSchemaDropdown;
+  </script>
+</body>
+</html>

@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Joined Wellbores Viewer</title>
+  <style>
+    body { font-family: sans-serif; padding: 1rem; }
+    label, input, button { margin: 0.5rem 0; display: block; }
+    table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
+    th, td { border: 1px solid #ccc; padding: 0.5rem; text-align: left; }
+    th { background-color: #f0f0f0; }
+    #error { color: red; margin-top: 1rem; }
+  </style>
+</head>
+<body>
+  <h1>Joined Wellbores Viewer</h1>
+
+  <label>
+    Data Partition ID:
+    <input type="text" id="partition" placeholder="e.g. opendes" />
+  </label>
+
+  <button onclick="loadJoinedWellbores()">Load Wellbores</button>
+  <div id="error"></div>
+  <table id="joinedTable"></table>
+
+  <script>
+    async function loadJoinedWellbores() {
+      const partition = document.getElementById("partition").value;
+      const errorDiv = document.getElementById("error");
+      const table = document.getElementById("joinedTable");
+      errorDiv.textContent = "";
+      table.innerHTML = "";
+
+      if (!partition) {
+        errorDiv.textContent = "Please enter a partition ID.";
+        return;
+      }
+
+      try {
+        const wellboreKind = "osdu:wks:Wellbore:1.5.1";
+        const wellKind = "osdu:wks:Well:1.4.0";
+
+        const [wellboreRes, wellRes] = await Promise.all([
+          fetch(`/api/storage/v2/records/flat/filter?kind=${encodeURIComponent(wellboreKind)}`, {
+            headers: { "data-partition-id": partition }
+          }),
+          fetch(`/api/storage/v2/records/flat/filter?kind=${encodeURIComponent(wellKind)}`, {
+            headers: { "data-partition-id": partition }
+          })
+        ]);
+
+        if (!wellboreRes.ok || !wellRes.ok) {
+          throw new Error("Failed to fetch records.");
+        }
+
+        const wellbores = await wellboreRes.json();
+        const wells = await wellRes.json();
+
+        const wellMap = {};
+        for (const well of wells) {
+          wellMap[well.id] = {
+            kind: well.kind,
+            purposeID: well.purposeID,
+            spatialLocation: well.spatialLocation,
+            statusID: well.statusID,
+            typeID: well.typeID
+          };
+        }
+
+        const headers = ["name", "spudDate", "wellID", "purposeID", "spatialLocation", "statusID", "typeID"];
+        const thead = "<tr>" + headers.map(h => `<th>${h}</th>`).join("") + "</tr>";
+        const rows = wellbores.map(wb => {
+          const well = wellMap[wb.wellID] || {};
+          return "<tr>" + headers.map(h => `<td>${wb[h] ?? well[h] ?? ""}</td>`).join("") + "</tr>";
+        }).join("");
+
+        table.innerHTML = thead + rows;
+
+      } catch (err) {
+        errorDiv.textContent = "Error: " + err.message;
+      }
+    }
+  </script>
+</body>
+</html>

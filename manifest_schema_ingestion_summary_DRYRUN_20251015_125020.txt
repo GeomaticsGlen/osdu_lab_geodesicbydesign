@@ -1,0 +1,11 @@
+Manifest Schema Ingestion Summary — 2025-10-15 12:50:20.499048
+Mode: DRYRUN
+============================================================
+
+
+================ INGESTION SUMMARY ================
+Total schemas processed: 0
+✅ Registered: 0
+⚠️ Already existed: 0
+❌ Failed: 0
+===================================================

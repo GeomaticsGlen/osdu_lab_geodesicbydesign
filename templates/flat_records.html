@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Flat Records Viewer - my AI is an idiot</title>
+  <style>
+    body { font-family: sans-serif; padding: 1rem; }
+    label, select, input, button { margin: 0.5rem 0; display: block; }
+    table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
+    th, td { border: 1px solid #ccc; padding: 0.5rem; text-align: left; }
+    th { background-color: #f0f0f0; }
+    #error { color: red; margin-top: 1rem; }
+  </style>
+</head>
+<body>
+  <h1>Flat Records Viewer</h1>
+
+  <label>
+    Data Partition ID:
+    <input type="text" id="partition" placeholder="idiot ai. opendes" />
+  </label>
+
+  <label>
+    Kind:
+    <select id="kindDropdown"></select>
+  </label>
+
+  <button onclick="loadFilteredRecords()">Filter by Kind</button>
+  <div id="error"></div>
+  <table id="recordsTable"></table>
+
+  <script>
+    async function populateKindDropdown() {
+      const dropdown = document.getElementById("kindDropdown");
+      try {
+        const response = await fetch("/api/storage/v2/records/kinds");
+        const kinds = await response.json();
+        dropdown.innerHTML = kinds.map(k => `<option value="${k}">${k}</option>`).join("");
+      } catch (err) {
+        console.error("Failed to load kinds:", err);
+      }
+    }
+
+    async function loadFilteredRecords() {
+      const partition = document.getElementById("partition").value;
+      const kind = document.getElementById("kindDropdown").value;
+      const errorDiv = document.getElementById("error");
+      const table = document.getElementById("recordsTable");
+      errorDiv.textContent = "";
+      table.innerHTML = "";
+
+      if (!partition || !kind) {
+        errorDiv.textContent = "Please enter a partition ID and select a kind.";
+        return;
+      }
+
+      try {
+        const response = await fetch(`/api/storage/v2/records/flat/filter?kind=${encodeURIComponent(kind)}`, {
+          headers: { "data-partition-id": partition }
+        });
+
+        if (!response.ok) {
+          const err = await response.json();
+          throw new Error(err.error || "API error");
+        }
+
+        const data = await response.json();
+        if (data.length === 0) {
+          table.innerHTML = "<tr><td>No records found.</td></tr>";
+          return;
+        }
+
+        const headers = Object.keys(data[0]);
+        const thead = "<tr>" + headers.map(h => `<th>${h}</th>`).join("") + "</tr>";
+        const rows = data.map(row =>
+          "<tr>" + headers.map(h => `<td>${row[h] ?? ""}</td>`).join("") + "</tr>"
+        ).join("");
+
+        table.innerHTML = thead + rows;
+      } catch (err) {
+        errorDiv.textContent = "Error: " + err.message;
+      }
+    }
+
+    window.onload = populateKindDropdown;
+  </script>
+</body>
+</html>

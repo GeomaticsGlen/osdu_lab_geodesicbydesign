@@ -1,0 +1,17 @@
+Manifest Schema Ingestion Summary — 2025-10-15 12:44:16.041006
+Mode: DRYRUN
+============================================================
+
+[1/6] GenericDataset.1.0.0.json → 🧪 Dry-run: skipped POST
+[2/6] GenericMasterData.1.0.0.json → 🧪 Dry-run: skipped POST
+[3/6] GenericReferenceData.1.0.0.json → 🧪 Dry-run: skipped POST
+[4/6] GenericWorkProduct.1.0.0.json → 🧪 Dry-run: skipped POST
+[5/6] GenericWorkProductComponent.1.0.0.json → 🧪 Dry-run: skipped POST
+[6/6] Manifest.1.0.0.json → 🧪 Dry-run: skipped POST
+
+================ INGESTION SUMMARY ================
+Total schemas processed: 6
+✅ Registered: 0
+⚠️ Already existed: 6
+❌ Failed: 0
+===================================================

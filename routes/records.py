@@ -1,4 +1,7 @@
 #routes/records.py
+from db import get_conn  # ✅ db.py is at repo root
+from services.record_service import get_flattened_records
+from services.record_service import get_flattened_records_by_kind
 from flask import Blueprint, request, jsonify, current_app
 from services.record_service import (
     ingest_records,
@@ -244,6 +247,78 @@ def patch_records_route():
         return jsonify({"error": "'records' must be a non-empty list"}), 400
 
     return patch_records_bulk(patches)
+# ----------------------------------------------------------------------
+# Route: GET /records/flat
+# Purpose: Returns records with 'data' JSONB fields unpacked into top-level keys.
+# Notes:
+# - Validates 'data-partition-id' header
+# - Supports pagination via 'limit' and 'offset'
+# - Delegates logic to get_flattened_records() in record_service.py
+# ----------------------------------------------------------------------
+@records_bp.route("/records/flat", methods=["GET"])
+def get_flat_records():
+    current_app.logger.info("GET /records/flat route hit")
+
+    tenant_id = request.headers.get("data-partition-id")
+    if not tenant_id:
+        return jsonify({"error": "Missing required header: data-partition-id"}), 400
+
+    limit = request.args.get("limit", type=int, default=100)
+    offset = request.args.get("offset", type=int, default=0)
+
+    return get_flattened_records(limit, offset)
+from flask import render_template
+
+@records_bp.route("/records/flat/view", methods=["GET"])
+# ----------------------------------------------------------------------
+# Route: GET /records/flat/view
+# Purpose: Serves a simple HTML page that displays flattened records in a table.
+# ----------------------------------------------------------------------
+def view_flat_records():
+    return render_template("flat_records.html")
+
+@records_bp.route("/records/kinds", methods=["GET"])
+# ----------------------------------------------------------------------
+# Route: GET /records/kinds
+# Purpose: Returns a list of distinct 'kind' values from the records table.
+# ----------------------------------------------------------------------
+def get_all_kinds():
+    current_app.logger.info("GET /records/kinds route hit")
+
+    try:
+        conn = get_conn()
+        with conn.cursor() as cur:
+            cur.execute("SELECT DISTINCT kind FROM records ORDER BY kind ASC")
+            rows = cur.fetchall()
+
+        kinds = [row[0] for row in rows]
+        return jsonify(kinds)
+
+    except Exception as e:
+        current_app.logger.error(f"Error in get_all_kinds: {e}")
+        return jsonify({"error": "Internal server error"}), 500
+
+@records_bp.route("/records/flat/filter", methods=["GET"])
+# ----------------------------------------------------------------------
+# Route: GET /records/flat/filter
+# Purpose: Returns flattened records filtered by 'kind' value.
+# ----------------------------------------------------------------------
+def get_flat_records_by_kind():
+    current_app.logger.info("GET /records/flat/filter route hit")
+
+    tenant_id = request.headers.get("data-partition-id")
+    kind = request.args.get("kind")
+
+    if not tenant_id:
+        return jsonify({"error": "Missing required header: data-partition-id"}), 400
+    if not kind:
+        return jsonify({"error": "Missing required query parameter: kind"}), 400
+
+    return get_flattened_records_by_kind(kind)
+
+@records_bp.route("/records/joined/wellbores", methods=["GET"])
+def view_joined_wellbores():
+    return render_template("joined_wellbores.html")
 
 
 

@@ -1,4 +1,9 @@
 #record_service.py
+###
+from db import get_conn  # ✅ Your actual DB connection helper
+###
+###
+####
 def ingest_records(records):
     conn = get_conn()
     ingested_ids, record_errors = [], []
@@ -195,6 +200,7 @@ def delete_record(record_id):
         return jsonify({"error": "Internal server error", "details": str(e)}), 500
     finally:
         cur.close()
+
 # ------------------------------------------------------------------------------
 # Service: patch_record
 #
@@ -448,12 +454,6 @@ def delete_records_bulk(ids):
         "recordIds": record_ids,
         "recordErrors": record_errors
     }), 200
-# ------------------------------------------------------------------------------
-# Service: retrieve_records
-#
-# Handles retrieval of multiple records by ID. Returns full payload, version,
-# and audit metadata. Supports includeDeleted and latest flags.
-# ------------------------------------------------------------------------------
 
 def retrieve_records(ids, include_deleted=False, latest_only=True):
     conn = get_conn()
@@ -645,4 +645,72 @@ def patch_records_bulk(patches):
         "recordErrors": record_errors
     }), 200
 
+# ----------------------------------------------------------------------
+# Function: get_flattened_records(limit, offset)
+# Purpose: Executes raw SQL using psycopg2 to fetch records and flatten the 'data' JSONB into top-level keys.
+# ----------------------------------------------------------------------
+def get_flattened_records(limit, offset):
+    query = """
+        SELECT id, kind, data
+        FROM records
+        LIMIT %s OFFSET %s
+    """
+
+    try:
+        conn = get_conn()
+        with conn.cursor() as cur:
+            cur.execute(query, (limit, offset))
+            rows = cur.fetchall()
+
+        results = []
+        for row in rows:
+            record_id, kind, data_json = row
+            data = data_json if isinstance(data_json, dict) else {}
+            flat_record = {
+                "id": record_id,
+                "kind": kind,
+                **data
+            }
+            results.append(flat_record)
+
+        return jsonify(results)
+
+    except Exception as e:
+        current_app.logger.error(f"Error in get_flattened_records: {e}")
+        return jsonify({"error": "Internal server error"}), 500
+
+# ----------------------------------------------------------------------
+# Function: get_flattened_records_by_kind(kind)
+# Purpose: Fetches and flattens records filtered by 'kind'.
+# ----------------------------------------------------------------------
+def get_flattened_records_by_kind(kind):
+    query = """
+        SELECT id, kind, data
+        FROM records
+        WHERE kind = %s
+        LIMIT 100
+    """
+
+    try:
+        conn = get_conn()
+        with conn.cursor() as cur:
+            cur.execute(query, (kind,))
+            rows = cur.fetchall()
+
+        results = []
+        for row in rows:
+            record_id, kind, data_json = row
+            data = data_json if isinstance(data_json, dict) else {}
+            flat_record = {
+                "id": record_id,
+                "kind": kind,
+                **data
+            }
+            results.append(flat_record)
+
+        return jsonify(results)
+
+    except Exception as e:
+        current_app.logger.error(f"Error in get_flattened_records_by_kind: {e}")
+        return jsonify({"error": "Internal server error"}), 500
 

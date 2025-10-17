@@ -8,7 +8,6 @@ At the same time, it builds on two decades of experience architecting and implem
 
 This repository provides a robust ingestion pipeline for OSDU-compliant reference data manifests. It validates, transforms, and ingests over 500+ records into a Storage Service backend, ensuring schema alignment, auditability, and reproducibility.
 
-With the assistance of AI, I was able to accelerate the design and implementation of a fully automated ingestion and schema resolution pipeline tailored to the complexities of OSDU reference data. This includes a recursive engine for resolving `$ref` dependencies across abstract, reference, and master schemas, a Flask-based service layer for validation and registration, and a robust ingestion workflow capable of processing hundreds of manifests with audit-ready logging and standards compliance.
 
 **Key Features**
 
@@ -23,35 +22,10 @@ With the assistance of AI, I was able to accelerate the design and implementatio
 - Backed by PostgreSQL with native JSONB support for efficient storage, indexing, and querying of semi-structured OSDU records
     
 
-**Supported Manifest Structures**
+Addendum:
+v2. Ingestion of the full reference values FIXED, LOCAL and OPEN. Created the logic and regex to flatten/unflatten, resolve $ref etc.
 
-- `{"records": [...]}`
-    
-- `{"ReferenceData": [...]}`
-    
-- `[record1, record2, ...]`
-    
-- `{single_record}`
-    
-
-**Usage**
-
-- Set `DRY_RUN = True` to validate without ingesting
-    
-- Set `DRY_RUN = False` to ingest into the Storage Service
-    
-- Run `ingest_reference_values.py` to process all manifests listed in `IngestionSequence.json`
-    
-
-**Architecture**
-
-- Modular Flask app with separate routes and services
-    
-- Schema validation handled via `validate_record()` in `services/schema_service.py`
-    
-- Ingestion sequence defined in `IngestionSequence.json`
-    
-- Summary logging to `ingestion_summary.log`
+v3. Basic GET logic to return flattened schemas and records so these can be viewed as tabular and list rather than RAW JSON. Added some example HTML.
     
 
 **Contributing**

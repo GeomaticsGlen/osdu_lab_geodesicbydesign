@@ -1,10 +1,20 @@
-#record_service.py
-###
-from db import get_conn  # ✅ Your actual DB connection helper
-###
-###
-####
-def ingest_records(records):
+import json
+import logging
+from datetime import datetime
+from typing import List, Dict
+from fastapi import HTTPException
+from db import get_conn
+import json
+from datetime import datetime
+from db import get_conn
+from services.schema_service import validate_data_against_schema
+from services.schema_service import validate_record, validate_data_against_schema
+
+logger = logging.getLogger(__name__)
+
+# -------------------- Ingestion --------------------
+
+def ingest_records(records: List[Dict]) -> Dict:
     conn = get_conn()
     ingested_ids, record_errors = [], []
 
@@ -12,9 +22,7 @@ def ingest_records(records):
         record_id = record.get("id", "<missing>")
         cur = None
         try:
-            # Validate required fields + schema
             validate_record(record)
-
             now = datetime.utcnow()
             cur = conn.cursor()
             cur.execute("SELECT version, data FROM records WHERE id = %s", (record["id"],))
@@ -69,7 +77,7 @@ def ingest_records(records):
         except Exception as e:
             if conn:
                 conn.rollback()
-            current_app.logger.exception(f"Failed to ingest record {record_id}")
+            logger.exception(f"Failed to ingest record {record_id}")
             record_errors.append({
                 "id": record_id,
                 "code": "DB_ERROR",
@@ -80,21 +88,21 @@ def ingest_records(records):
                 cur.close()
 
     if not ingested_ids:
-        current_app.logger.warning("❌ No records were committed to the database.")
-        return jsonify({
+        raise HTTPException(status_code=400, detail={
             "error": "NO_RECORDS_COMMITTED",
             "reason": "All records failed validation or DB insert",
             "recordErrors": record_errors
-        }), 400
+        })
 
-    return jsonify({
+    return {
         "recordCount": len(ingested_ids),
         "recordIds": ingested_ids,
         "recordErrors": record_errors
-    }), 201
+    }
 
+# -------------------- Retrieval --------------------
 
-def get_records_by_ids(record_ids, include_deleted=False):
+def get_records_by_ids(record_ids: List[str], include_deleted: bool = False) -> Dict:
     conn = get_conn()
     cur = conn.cursor()
     try:
@@ -111,17 +119,11 @@ def get_records_by_ids(record_ids, include_deleted=False):
 
         for row in rows:
             rec_id, kind, legal, acl, data, version, create_user, create_time, modify_user, modify_time = row
+            legal = json.loads(legal) if isinstance(legal, str) else legal
+            acl = json.loads(acl) if isinstance(acl, str) else acl
+            data = json.loads(data) if isinstance(data, str) else data
 
-            # Ensure JSON types
-            if isinstance(legal, str):
-                legal = json.loads(legal)
-            if isinstance(acl, str):
-                acl = json.loads(acl)
-            if isinstance(data, str):
-                data = json.loads(data)
-
-            # Skip soft-deleted unless explicitly requested
-            if data.get("osdu_deleted") is True and not include_deleted:
+            if data.get("osdu_deleted") and not include_deleted:
                 continue
 
             record = {
@@ -139,68 +141,16 @@ def get_records_by_ids(record_ids, include_deleted=False):
             found_records.append(record)
             missing_ids.discard(rec_id)
 
-        return jsonify({
+        return {
             "records": found_records,
             "missingRecordIds": list(missing_ids)
-        }), 200
+        }
 
     except Exception as e:
-        current_app.logger.exception("Unhandled exception in get_records_by_ids")
-        return jsonify({"error": "Internal server error", "details": str(e)}), 500
+        logger.exception("Unhandled exception in get_records_by_ids")
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         cur.close()
-# ------------------------------------------------------------------------------
-# Service: delete_record
-#
-# Handles the soft-delete of a record by ID. Updates the record's data to include
-# osdu_deleted and osdu_deleted_at fields. Returns a structured JSON response.
-# ------------------------------------------------------------------------------
-
-def delete_record(record_id):
-    conn = get_conn()
-    cur = conn.cursor()
-    try:
-        # Fetch the record
-        cur.execute("""
-            SELECT id, data
-            FROM records
-            WHERE id = %s
-        """, (record_id,))
-        row = cur.fetchone()
-
-        if not row:
-            current_app.logger.info(f"Record {record_id} not found")
-            return jsonify({"error": "Record not found"}), 404
-
-        data = row[1]
-        if isinstance(data, str):
-            data = json.loads(data)
-
-        # Mark as deleted
-        data["osdu_deleted"] = True
-        data["osdu_deleted_at"] = datetime.utcnow().isoformat() + "Z"
-
-        cur.execute("""
-            UPDATE records
-            SET data = %s
-            WHERE id = %s
-        """, (json.dumps(data), record_id))
-
-        conn.commit()
-        current_app.logger.info(f"Record {record_id} soft-deleted successfully")
-
-        return jsonify({
-            "id": record_id,
-            "status": "soft-deleted"
-        }), 200
-
-    except Exception as e:
-        conn.rollback()
-        current_app.logger.exception(f"Unhandled exception in delete_record for {record_id}")
-        return jsonify({"error": "Internal server error", "details": str(e)}), 500
-    finally:
-        cur.close()
-
 # ------------------------------------------------------------------------------
 # Service: patch_record
 #
@@ -221,7 +171,7 @@ def patch_record(record_id, payload):
         row = cur.fetchone()
 
         if not row:
-            return jsonify({"error": "Record not found"}), 404
+            return ({"error": "Record not found"}), 404
 
         kind, legal, acl, data, version, osdu_deleted = row
 
@@ -234,7 +184,7 @@ def patch_record(record_id, payload):
             data = json.loads(data)
 
         if osdu_deleted:
-            return jsonify({
+            return ({
                 "error": "ALREADY_DELETED",
                 "reason": "Cannot patch a deleted record"
             }), 400
@@ -253,9 +203,9 @@ def patch_record(record_id, payload):
         try:
             validate_data_against_schema(kind, data)
         except ValueError as ve:
-            return jsonify({"error": "SCHEMA_VALIDATION_ERROR", "reason": str(ve)}), 400
+            return ({"error": "SCHEMA_VALIDATION_ERROR", "reason": str(ve)}), 400
         except Exception as e:
-            return jsonify({"error": "SCHEMA_SERVICE_ERROR", "reason": str(e)}), 500
+            return ({"error": "SCHEMA_SERVICE_ERROR", "reason": str(e)}), 500
 
         # Save back
         now = datetime.utcnow()
@@ -282,7 +232,7 @@ def patch_record(record_id, payload):
         ))
         conn.commit()
 
-        return jsonify({
+        return ({
             "id": record_id,
             "status": "patched",
             "updated_fields": list(payload.keys())
@@ -290,19 +240,16 @@ def patch_record(record_id, payload):
 
     except Exception as e:
         conn.rollback()
-        current_app.logger.exception(f"Unhandled exception in patch_record for {record_id}")
-        return jsonify({"error": "Internal server error", "details": str(e)}), 500
+        logger.exception(f"Unhandled exception in patch_record for {record_id}")
+        return ({"error": "Internal server error", "details": str(e)}), 500
     finally:
         cur.close()
-# ------------------------------------------------------------------------------
-# Service: ingest_records_batch
-#
-# Handles ingestion of multiple records in one request. Validates required fields,
-# checks schema compliance, and inserts or updates records with versioning.
-# ------------------------------------------------------------------------------
-from services.schema_service import validate_record
-
-def ingest_records_batch(records):
+def ingest_records_batch(records: List[Dict]) -> Dict:
+    """
+    Handles ingestion of multiple records in one request.
+    Validates required fields, checks schema compliance,
+    and inserts or updates records with versioning.
+    """
     conn = get_conn()
     record_ids, record_errors = [], []
 
@@ -310,7 +257,6 @@ def ingest_records_batch(records):
         record_id = record.get("id", "<missing>")
         cur = None
         try:
-            # Validate required fields + schema
             validate_record(record)
 
             now = datetime.utcnow()
@@ -365,7 +311,7 @@ def ingest_records_batch(records):
         except Exception as e:
             if conn:
                 conn.rollback()
-            current_app.logger.exception(f"Failed to ingest record {record_id}")
+            logger.exception(f"Failed to ingest record {record_id}")
             record_errors.append({
                 "id": record_id,
                 "code": "DB_ERROR",
@@ -376,19 +322,18 @@ def ingest_records_batch(records):
                 cur.close()
 
     if not record_ids:
-        current_app.logger.warning("❌ No records were committed to the database.")
-        return jsonify({
+        logger.warning("❌ No records were committed to the database.")
+        raise HTTPException(status_code=400, detail={
             "error": "NO_RECORDS_COMMITTED",
             "reason": "All records failed validation or DB insert",
             "recordErrors": record_errors
-        }), 400
+        })
 
-    return jsonify({
+    return {
         "recordCount": len(record_ids),
         "recordIds": record_ids,
         "recordErrors": record_errors
-    }), 201
-
+    }
 # ------------------------------------------------------------------------------
 # Service: delete_records_bulk
 #
@@ -439,7 +384,7 @@ def delete_records_bulk(ids):
 
         except Exception as e:
             conn.rollback()
-            current_app.logger.exception(f"Failed to delete record {rid}")
+            logger.exception(f"Failed to delete record {rid}")
             record_errors.append({
                 "id": rid,
                 "code": "DB_ERROR",
@@ -449,7 +394,7 @@ def delete_records_bulk(ids):
             if cur:
                 cur.close()
 
-    return jsonify({
+    return ({
         "recordCount": len(record_ids),
         "recordIds": record_ids,
         "recordErrors": record_errors
@@ -501,29 +446,20 @@ def retrieve_records(ids, include_deleted=False, latest_only=True):
             found_records.append(record)
             missing_ids.discard(rec_id)
 
-        return jsonify({
+        return ({
             "records": found_records,
             "missingRecordIds": list(missing_ids)
         }), 200
 
     except Exception as e:
-        current_app.logger.exception("Unhandled exception in retrieve_records")
-        return jsonify({"error": "Internal server error", "details": str(e)}), 500
+        logger.exception("Unhandled exception in retrieve_records")
+        return ({"error": "Internal server error", "details": str(e)}), 500
     finally:
         cur.close()
-# ------------------------------------------------------------------------------
-# Service: patch_records_bulk
-#
-# Handles partial updates to multiple records. Merges incoming fields into the
-# existing record, validates against schema, and updates the DB with a new version.
-# ------------------------------------------------------------------------------
-import json
-from datetime import datetime
-from flask import jsonify, current_app
-from db import get_conn
-from services.schema_service import validate_data_against_schema
 
-def patch_records_bulk(patches):
+# -------------------- Bulk Patch --------------------
+
+def patch_records_bulk(patches: List[Dict]) -> Dict:
     conn = get_conn()
     record_ids, record_errors = [], []
 
@@ -556,14 +492,9 @@ def patch_records_bulk(patches):
                 continue
 
             kind, legal, acl, data, version, osdu_deleted = row
-
-            # Ensure JSON types
-            if isinstance(legal, str):
-                legal = json.loads(legal)
-            if isinstance(acl, str):
-                acl = json.loads(acl)
-            if isinstance(data, str):
-                data = json.loads(data)
+            legal = json.loads(legal) if isinstance(legal, str) else legal
+            acl = json.loads(acl) if isinstance(acl, str) else acl
+            data = json.loads(data) if isinstance(data, str) else data
 
             if osdu_deleted:
                 record_errors.append({
@@ -573,7 +504,6 @@ def patch_records_bulk(patches):
                 })
                 continue
 
-            # Merge patch into existing data
             if "data" in patch:
                 data.update(patch["data"])
             if "legal" in patch:
@@ -583,7 +513,6 @@ def patch_records_bulk(patches):
             if "kind" in patch:
                 kind = patch["kind"]
 
-            # Schema validation
             try:
                 validate_data_against_schema(kind, data)
             except ValueError as ve:
@@ -601,7 +530,6 @@ def patch_records_bulk(patches):
                 })
                 continue
 
-            # Save back
             now = datetime.utcnow()
             new_version = version + 1
             cur.execute("""
@@ -629,7 +557,7 @@ def patch_records_bulk(patches):
 
         except Exception as e:
             conn.rollback()
-            current_app.logger.exception(f"Failed to patch record {record_id}")
+            logger.exception(f"Failed to patch record {record_id}")
             record_errors.append({
                 "id": record_id,
                 "code": "DB_ERROR",
@@ -639,17 +567,63 @@ def patch_records_bulk(patches):
             if cur:
                 cur.close()
 
-    return jsonify({
+    return {
         "recordCount": len(record_ids),
         "recordIds": record_ids,
         "recordErrors": record_errors
-    }), 200
+    }
+def delete_record(record_id: str) -> dict:
+    """
+    Soft-deletes a record by ID.
+    Adds osdu_deleted and osdu_deleted_at fields to the record's data.
+    """
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        # Fetch the record
+        cur.execute("""
+            SELECT id, data
+            FROM records
+            WHERE id = %s
+        """, (record_id,))
+        row = cur.fetchone()
 
-# ----------------------------------------------------------------------
-# Function: get_flattened_records(limit, offset)
-# Purpose: Executes raw SQL using psycopg2 to fetch records and flatten the 'data' JSONB into top-level keys.
-# ----------------------------------------------------------------------
-def get_flattened_records(limit, offset):
+        if not row:
+            logger.info(f"Record {record_id} not found")
+            raise HTTPException(status_code=404, detail="Record not found")
+
+        data = row[1]
+        if isinstance(data, str):
+            data = json.loads(data)
+
+        # Mark as deleted
+        data["osdu_deleted"] = True
+        data["osdu_deleted_at"] = datetime.utcnow().isoformat() + "Z"
+
+        cur.execute("""
+            UPDATE records
+            SET data = %s
+            WHERE id = %s
+        """, (json.dumps(data), record_id))
+
+        conn.commit()
+        logger.info(f"Record {record_id} soft-deleted successfully")
+
+        return {
+            "id": record_id,
+            "status": "soft-deleted"
+        }
+
+    except Exception as e:
+        conn.rollback()
+        logger.exception(f"Unhandled exception in delete_record for {record_id}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+    finally:
+        cur.close()
+
+# -------------------- Flattened Records --------------------
+
+def get_flattened_records(limit: int, offset: int) -> List[Dict]:
     query = """
         SELECT id, kind, data
         FROM records
@@ -673,17 +647,13 @@ def get_flattened_records(limit, offset):
             }
             results.append(flat_record)
 
-        return jsonify(results)
+        return results
 
     except Exception as e:
-        current_app.logger.error(f"Error in get_flattened_records: {e}")
-        return jsonify({"error": "Internal server error"}), 500
+        logger.error(f"Error in get_flattened_records: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
-# ----------------------------------------------------------------------
-# Function: get_flattened_records_by_kind(kind)
-# Purpose: Fetches and flattens records filtered by 'kind'.
-# ----------------------------------------------------------------------
-def get_flattened_records_by_kind(kind):
+def get_flattened_records_by_kind(kind: str) -> List[Dict]:
     query = """
         SELECT id, kind, data
         FROM records
@@ -708,9 +678,9 @@ def get_flattened_records_by_kind(kind):
             }
             results.append(flat_record)
 
-        return jsonify(results)
+        return results
 
     except Exception as e:
-        current_app.logger.error(f"Error in get_flattened_records_by_kind: {e}")
-        return jsonify({"error": "Internal server error"}), 500
+        logger.error(f"Error in get_flattened_records_by_kind: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 

@@ -268,3 +268,7 @@ async def fetch_normalized_records_route(
     except Exception as e:
         logger.exception("Unhandled error fetching normalized records")
         raise HTTPException(status_code=500, detail=f"INTERNAL_ERROR: {str(e)}")
+
+@router.get("/ping")
+async def ping():
+    return {"status": "ok"}

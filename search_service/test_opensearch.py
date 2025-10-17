@@ -1,9 +1,9 @@
-from opensearchpy import OpenSearch
+from opensearchpy import OpenSearch, ConnectionError
 
-# Connect to your local OpenSearch
-client = OpenSearch([{"host": "localhost", "port": 9200}])
-
-# Fetch cluster info
-info = client.info()
-print("✅ Connected to OpenSearch")
-print(info)
+try:
+    client = OpenSearch([{"host": "localhost", "port": 9200}])
+    info = client.info()
+    print("✅ Connected to OpenSearch")
+    print(info)
+except ConnectionError as e:
+    print("❌ Failed to connect to OpenSearch:", e)

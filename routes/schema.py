@@ -174,3 +174,6 @@ async def view_schema_tree_browser(request: Request):
     """
     return templates.TemplateResponse("schema_tree_browser.html", {"request": request})
 
+@router.get("/ping")
+async def ping():
+    return {"status": "ok"}

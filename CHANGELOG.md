@@ -33,4 +33,16 @@
 - Verified route registration and introspection via structured logging
 
 ---
+🔄 Changelog: New OSDU Storage API Routes (FastAPI)
+✅ Implemented Routes
+GET /records/{id} Fetches the latest version of a record by ID.
 
+GET /records/{id}/{version} Retrieves a specific version of a record.
+
+POST /records/{id}:delete Soft-deletes a single record (logical deletion with audit trail).
+
+PUT /records/copy Copies record references from one namespace to another. All-or-nothing transactional behavior.
+
+POST /query/records Fetches multiple records by ID in a single request.
+
+POST /query/records:batch Fetches multiple records with normalization context (frame-of-reference header).

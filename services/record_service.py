@@ -1,7 +1,7 @@
 import json
 import logging
 from datetime import datetime
-from typing import List, Dict
+from typing import List, Dict, Optional
 from fastapi import HTTPException
 from db import get_conn
 import json
@@ -684,3 +684,293 @@ def get_flattened_records_by_kind(kind: str) -> List[Dict]:
         logger.error(f"Error in get_flattened_records_by_kind: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
+def get_latest_record(record_id: str, tenant_id: str, attributes: Optional[List[str]] = None) -> dict:
+    """
+    Fetches the latest version of a record by ID.
+    Optionally filters returned fields using 'attributes' (e.g. data.wellName).
+    """
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            SELECT id, kind, legal, acl, data, version,
+                   create_user, create_time, modify_user, modify_time, osdu_deleted
+            FROM records
+            WHERE id = %s
+        """, (record_id,))
+        row = cur.fetchone()
+
+        if not row:
+            logger.info(f"Record {record_id} not found")
+            raise HTTPException(status_code=404, detail="Record not found")
+
+        rec_id, kind, legal, acl, data, version, create_user, create_time, modify_user, modify_time, osdu_deleted = row
+
+        # Ensure JSON types
+        legal = json.loads(legal) if isinstance(legal, str) else legal
+        acl = json.loads(acl) if isinstance(acl, str) else acl
+        data = json.loads(data) if isinstance(data, str) else data
+
+        # Apply attribute filtering if requested
+        if attributes:
+            filtered_data = {}
+            for attr in attributes:
+                if attr.startswith("data.") and len(attr.split(".")) == 2:
+                    key = attr.split(".")[1]
+                    if key in data:
+                        filtered_data[key] = data[key]
+            data = filtered_data
+
+        return {
+            "id": rec_id,
+            "kind": kind,
+            "acl": acl,
+            "legal": legal,
+            "data": data,
+            "version": version,
+            "createUser": create_user,
+            "createTime": create_time.isoformat() if create_time else None,
+            "modifyUser": modify_user,
+            "modifyTime": modify_time.isoformat() if modify_time else None,
+            "osdu_deleted": osdu_deleted
+        }
+
+    except Exception as e:
+        logger.exception(f"Unhandled exception in get_latest_record for {record_id}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+    finally:
+        cur.close()
+
+def get_specific_record_version(record_id: str, version: int, tenant_id: str, attributes: Optional[List[str]] = None) -> dict:
+    """
+    Fetches a specific version of a record by ID and version number.
+    Optionally filters returned fields using 'attributes' (e.g. data.wellName).
+    """
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            SELECT id, kind, legal, acl, data, version,
+                   create_user, create_time, modify_user, modify_time, osdu_deleted
+            FROM records
+            WHERE id = %s AND version = %s
+        """, (record_id, version))
+        row = cur.fetchone()
+
+        if not row:
+            logger.info(f"Record {record_id} version {version} not found")
+            raise HTTPException(status_code=404, detail="Record version not found")
+
+        rec_id, kind, legal, acl, data, version, create_user, create_time, modify_user, modify_time, osdu_deleted = row
+
+        # Ensure JSON types
+        legal = json.loads(legal) if isinstance(legal, str) else legal
+        acl = json.loads(acl) if isinstance(acl, str) else acl
+        data = json.loads(data) if isinstance(data, str) else data
+
+        # Apply attribute filtering if requested
+        if attributes:
+            filtered_data = {}
+            for attr in attributes:
+                if attr.startswith("data.") and len(attr.split(".")) == 2:
+                    key = attr.split(".")[1]
+                    if key in data:
+                        filtered_data[key] = data[key]
+            data = filtered_data
+
+        return {
+            "id": rec_id,
+            "kind": kind,
+            "acl": acl,
+            "legal": legal,
+            "data": data,
+            "version": version,
+            "createUser": create_user,
+            "createTime": create_time.isoformat() if create_time else None,
+            "modifyUser": modify_user,
+            "modifyTime": modify_time.isoformat() if modify_time else None,
+            "osdu_deleted": osdu_deleted
+        }
+
+    except Exception as e:
+        logger.exception(f"Unhandled exception in get_specific_record_version for {record_id} v{version}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+    finally:
+        cur.close()
+
+def soft_delete_single_record(record_id: str) -> dict:
+    """
+    Soft-deletes a single record by setting osdu_deleted=true and osdu_deleted_at timestamp.
+    Returns status and record ID.
+    """
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            SELECT osdu_deleted FROM records WHERE id = %s
+        """, (record_id,))
+        row = cur.fetchone()
+
+        if not row:
+            logger.info(f"Record {record_id} not found")
+            raise HTTPException(status_code=404, detail="Record not found")
+
+        already_deleted = row[0]
+        if already_deleted:
+            logger.info(f"Record {record_id} already marked deleted")
+            raise HTTPException(status_code=400, detail="Record already marked deleted")
+
+        now = datetime.utcnow()
+        cur.execute("""
+            UPDATE records
+            SET osdu_deleted = TRUE,
+                osdu_deleted_at = %s,
+                modify_user = %s,
+                modify_time = %s
+            WHERE id = %s
+        """, (now, "system", now, record_id))
+        conn.commit()
+
+        logger.info(f"Record {record_id} soft-deleted successfully")
+        return {
+            "id": record_id,
+            "status": "soft-deleted"
+        }
+
+    except Exception as e:
+        conn.rollback()
+        logger.exception(f"Unhandled exception in soft_delete_single_record for {record_id}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+    finally:
+        cur.close()
+def copy_record_references(source_ns: str, target_ns: str, record_ids: List[str]) -> dict:
+    """
+    Copies record references from source namespace to target namespace.
+    All-or-nothing transactional copy. Fails if any target record already exists.
+    """
+    conn = get_conn()
+    cur = conn.cursor()
+    copied_ids, copy_errors = [], []
+
+    try:
+        # Check for existing records in target namespace
+        target_ids = [rid.replace(source_ns, target_ns, 1) for rid in record_ids]
+        cur.execute("SELECT id FROM records WHERE id = ANY(%s)", (target_ids,))
+        existing = {row[0] for row in cur.fetchall()}
+
+        if existing:
+            logger.warning(f"Target namespace already contains: {existing}")
+            raise HTTPException(status_code=409, detail={
+                "error": "COPY_CONFLICT",
+                "reason": "One or more records already exist in target namespace",
+                "conflictingIds": list(existing)
+            })
+
+        # Fetch source records
+        cur.execute("SELECT id, kind, legal, acl, data, version FROM records WHERE id = ANY(%s)", (record_ids,))
+        rows = cur.fetchall()
+
+        if len(rows) != len(record_ids):
+            found_ids = {row[0] for row in rows}
+            missing = set(record_ids) - found_ids
+            raise HTTPException(status_code=404, detail={
+                "error": "SOURCE_NOT_FOUND",
+                "reason": "One or more source records not found",
+                "missingIds": list(missing)
+            })
+
+        now = datetime.utcnow()
+        for row in rows:
+            src_id, kind, legal, acl, data, version = row
+            tgt_id = src_id.replace(source_ns, target_ns, 1)
+
+            cur.execute("""
+                INSERT INTO records (
+                    id, kind, legal, acl, data, version,
+                    create_user, create_time, modify_user, modify_time
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (
+                tgt_id,
+                kind,
+                legal,
+                acl,
+                data,
+                version,
+                "system",
+                now,
+                "system",
+                now
+            ))
+            copied_ids.append(tgt_id)
+
+        conn.commit()
+        logger.info(f"Copied {len(copied_ids)} records from {source_ns} to {target_ns}")
+        return {
+            "sourceNamespace": source_ns,
+            "targetNamespace": target_ns,
+            "copiedRecordIds": copied_ids
+        }
+
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        logger.exception("Unhandled exception in copy_record_references")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+    finally:
+        cur.close()
+
+def fetch_normalized_records(record_ids: List[str], frame_of_reference: str) -> dict:
+    """
+    Fetches multiple records and applies normalization context.
+    Currently returns raw records with frame-of-reference echoed for future normalization logic.
+    """
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            SELECT id, kind, legal, acl, data, version,
+                   create_user, create_time, modify_user, modify_time, osdu_deleted
+            FROM records
+            WHERE id = ANY(%s)
+        """, (record_ids,))
+        rows = cur.fetchall()
+
+        found_records = []
+        missing_ids = set(record_ids)
+
+        for row in rows:
+            rec_id, kind, legal, acl, data, version, create_user, create_time, modify_user, modify_time, osdu_deleted = row
+
+            legal = json.loads(legal) if isinstance(legal, str) else legal
+            acl = json.loads(acl) if isinstance(acl, str) else acl
+            data = json.loads(data) if isinstance(data, str) else data
+
+            record = {
+                "id": rec_id,
+                "kind": kind,
+                "acl": acl,
+                "legal": legal,
+                "data": data,
+                "version": version,
+                "createUser": create_user,
+                "createTime": create_time.isoformat() if create_time else None,
+                "modifyUser": modify_user,
+                "modifyTime": modify_time.isoformat() if modify_time else None,
+                "osdu_deleted": osdu_deleted
+            }
+            found_records.append(record)
+            missing_ids.discard(rec_id)
+
+        return {
+            "frameOfReference": frame_of_reference,
+            "records": found_records,
+            "missingRecordIds": list(missing_ids)
+        }
+
+    except Exception as e:
+        logger.exception("Unhandled exception in fetch_normalized_records")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+    finally:
+        cur.close()

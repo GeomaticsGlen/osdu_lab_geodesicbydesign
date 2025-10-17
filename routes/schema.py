@@ -173,3 +173,4 @@ async def view_schema_tree_browser(request: Request):
     Used to visualize nested and resolved schema fields.
     """
     return templates.TemplateResponse("schema_tree_browser.html", {"request": request})
+

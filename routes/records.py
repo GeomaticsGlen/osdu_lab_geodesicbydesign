@@ -14,6 +14,11 @@ from services.record_service import (
     patch_records_bulk,
     get_flattened_records,
     get_flattened_records_by_kind,
+    get_latest_record,
+    get_specific_record_version,
+    copy_record_references,
+    fetch_normalized_records,
+    soft_delete_single_record,
 )
 import logging
 
@@ -148,3 +153,118 @@ async def view_joined_wellbores(request: Request):
 @router.get("/records/schema/browser")
 async def view_schema_browser(request: Request):
     return templates.TemplateResponse("schema_browser.html", {"request": request})
+
+@router.get("/records/{record_id}")
+async def get_latest_record_route(record_id: str, request: Request, attribute: Optional[List[str]] = None):
+    logger.info(f"GET /records/{record_id} route hit")
+    tenant_id = request.headers.get("data-partition-id")
+    if not tenant_id:
+        raise HTTPException(status_code=400, detail="Missing required header: data-partition-id")
+
+    try:
+        return get_latest_record(record_id, tenant_id, attribute)
+    except Exception as e:
+        logger.exception(f"Error fetching latest version of record {record_id}")
+        raise HTTPException(status_code=500, detail=f"INTERNAL_ERROR: {str(e)}")
+# Route: GET /records/{id}/{version} - fetch a specific version of a record
+
+@router.get("/records/{record_id}/{version}")
+async def get_specific_record_version_route(
+    record_id: str,
+    version: int,
+    request: Request,
+    attribute: Optional[List[str]] = None
+):
+    logger.info(f"GET /records/{record_id}/{version} route hit")
+    tenant_id = request.headers.get("data-partition-id")
+    if not tenant_id:
+        raise HTTPException(status_code=400, detail="Missing required header: data-partition-id")
+
+    try:
+        return get_specific_record_version(record_id, version, tenant_id, attribute)
+    except Exception as e:
+        logger.exception(f"Error fetching version {version} of record {record_id}")
+        raise HTTPException(status_code=500, detail=f"INTERNAL_ERROR: {str(e)}")
+# Route: POST /records/{id}:delete – soft-delete a single record
+
+@router.post("/records/{record_id}:delete")
+async def soft_delete_single_record_route(record_id: str, request: Request):
+    logger.info(f"POST /records/{record_id}:delete route hit")
+    tenant_id = request.headers.get("data-partition-id")
+    if not tenant_id:
+        raise HTTPException(status_code=400, detail="Missing required header: data-partition-id")
+
+    try:
+        return soft_delete_single_record(record_id)
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        logger.exception(f"Unhandled error deleting record {record_id}")
+        raise HTTPException(status_code=500, detail=f"INTERNAL_ERROR: {str(e)}")
+# Route: PUT /records/copy – copy record references between namespaces
+
+class CopyPayload(BaseModel):
+    sourceNamespace: str
+    targetNamespace: str
+    recordIds: List[str]
+
+@router.put("/records/copy")
+async def copy_record_references_route(request: Request, payload: CopyPayload):
+    logger.info(f"PUT /records/copy route hit")
+    tenant_id = request.headers.get("data-partition-id")
+    if not tenant_id:
+        raise HTTPException(status_code=400, detail="Missing required header: data-partition-id")
+
+    try:
+        return copy_record_references(payload.sourceNamespace, payload.targetNamespace, payload.recordIds)
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        logger.exception("Unhandled error during record copy")
+        raise HTTPException(status_code=500, detail=f"INTERNAL_ERROR: {str(e)}")
+
+# Route: POST /query/records – fetch multiple records by ID
+
+class MultiRecordPayload(BaseModel):
+    recordIds: List[str]
+
+@router.post("/query/records")
+async def fetch_multiple_records_route(request: Request, payload: MultiRecordPayload):
+    logger.info("POST /query/records route hit")
+    tenant_id = request.headers.get("data-partition-id")
+    if not tenant_id:
+        raise HTTPException(status_code=400, detail="Missing required header: data-partition-id")
+
+    try:
+        return get_records_by_ids(payload.recordIds)
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        logger.exception("Unhandled error fetching multiple records")
+        raise HTTPException(status_code=500, detail=f"INTERNAL_ERROR: {str(e)}")
+# Route: POST /query/records:batch – fetch multiple records with normalization context
+
+class NormalizedRecordPayload(BaseModel):
+    recordIds: List[str]
+
+@router.post("/query/records:batch")
+async def fetch_normalized_records_route(
+    request: Request,
+    payload: NormalizedRecordPayload
+):
+    logger.info("POST /query/records:batch route hit")
+    tenant_id = request.headers.get("data-partition-id")
+    frame_of_reference = request.headers.get("frame-of-reference")
+
+    if not tenant_id:
+        raise HTTPException(status_code=400, detail="Missing required header: data-partition-id")
+    if not frame_of_reference:
+        raise HTTPException(status_code=400, detail="Missing required header: frame-of-reference")
+
+    try:
+        return fetch_normalized_records(payload.recordIds, frame_of_reference)
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        logger.exception("Unhandled error fetching normalized records")
+        raise HTTPException(status_code=500, detail=f"INTERNAL_ERROR: {str(e)}")
